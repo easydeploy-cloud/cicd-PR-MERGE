@@ -41,10 +41,12 @@ definitions:
           - git push 
 
 pipelines:
-    branches:
-      main:
-        - step: *build-push-to-ecr
-        - step: *update-to-manifest 
+  pull-requests:
+    feature/*:
+      - step: *build-push-to-ecr
+  branches:
+    develop:
+      - step: *update-to-manifest 
         
  
    
