@@ -42,7 +42,7 @@ definitions:
 
 pipelines:
     branches:
-      master:
+      main:
         - step: *build-push-to-ecr
         - step: *update-to-manifest 
         
