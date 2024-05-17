@@ -1,91 +1,66 @@
-name: Deploy To ECS
+name: Deploy to Amazon ECS
 
-on: 
+on:
   push:
-    branches: [ "develop" ]
-  workflow_dispatch:
+    branches:
+      - main
 
 env:
-  AWS_REGION: us-east-1                   # set this to your preferred AWS region, e.g. us-west-1
-  ECR_REPOSITORY1: 654654560428.dkr.ecr.us-east-1.amazonaws.com/nexuspro-frontend                   # set this to your Amazon ECR repository name
-  ECR_REPOSITORY: nexuspro-frontend
-
-permissions:
-  contents: read
-  id-token: write
+  AWS_REGION: MY_AWS_REGION                   # set this to your preferred AWS region, e.g. us-west-1
+  ECR_REPOSITORY: MY_ECR_REPOSITORY           # set this to your Amazon ECR repository name
+  ECS_SERVICE: MY_ECS_SERVICE                 # set this to your Amazon ECS service name
+  ECS_CLUSTER: MY_ECS_CLUSTER                 # set this to your Amazon ECS cluster name
+  ECS_TASK_DEFINITION: MY_ECS_TASK_DEFINITION # set this to the path to your Amazon ECS task definition
+                                               # file, e.g. .aws/task-definition.json
+  CONTAINER_NAME: MY_CONTAINER_NAME           # set this to the name of the container in the
+                                               # containerDefinitions section of your task definition
 
 jobs:
-  Deploy:
-
+  deploy:
+    name: Deploy
     runs-on: ubuntu-latest
-    environment: Dev 
+    environment: production
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: configure aws credentials
-        id: creds
-        uses: aws-actions/configure-aws-credentials@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@0e613a0980cbf65ed5b322eb7a1e075d28913a83
         with:
-          role-to-assume: arn:aws:iam::654654560428:role/dev-github-oidc
-          role-session-name: githubrolesession
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-          output-credentials: true
-      
+
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@62f4f872db3836360b72999f4b87f1ff13310f3a
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-          BUILD_ID: ${{ github.run_number }}
         run: |
           # Build a docker container and
           # push it to ECR so that it can
           # be deployed to ECS.
-          aws s3 ls 
-          aws s3 cp s3://dev-nexus-env/dashboard/encryptedenv ./
-          aws --region us-east-1  kms decrypt --ciphertext-blob  fileb://encryptedenv  --output text --query Plaintext | base64 --decode > .env
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_ID -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_ID
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-          # copy the docker build files into the local and sync to s3 bucket   
-          #docker create --name extract $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          #docker cp extract:/usr/local/apache2/htdocs/static ./
-          #docker cp extract:/usr/local/apache2/htdocs/assets ./
-          #aws s3 sync ./static s3://staticdash.dev.nexuspro.io/static
-          #aws s3 sync ./assets s3://staticdash.dev.nexuspro.io/assets
-          #docker rm extract
 
-      - name: Run Snyk to check Docker images for vulnerabilities
-        uses: snyk/actions/docker@master
-        continue-on-error: true
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@c804dfbdd57f713b6c079302a4c01db7017a36fc
         with:
-          image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          args: --severity-threshold=high
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
 
-      - name: Push changes to Argocd 
-        run: |
-             git  clone ${{ secrets.Argocd_Repo_Url }}
-             ls -la 
-             cd Argocd-EKS
-             git checkout develop
-             sed -i '18s/.*/        image:\ CONTAINER_IMAGE/' manifest/deployment.yml
-             sed -i 's@CONTAINER_IMAGE@'"$ECR_REPOSITORY1:${{ github.run_number }}"'@' manifest/deployment.yml
-             git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-             git config --global user.name "${{ github.actor }}"
-             git add .
-             git commit -m "latest build image ${{ github.run_number }}" || echo "it is already up to date"
-             git push 
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@df9643053eda01f169e64a0e60233aacca83799a
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
