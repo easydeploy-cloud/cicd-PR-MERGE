@@ -1,0 +1,91 @@
+name: Deploy To ECS
+
+on: 
+  push:
+    branches: [ "develop" ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1                   # set this to your preferred AWS region, e.g. us-west-1
+  ECR_REPOSITORY1: 654654560428.dkr.ecr.us-east-1.amazonaws.com/nexuspro-frontend                   # set this to your Amazon ECR repository name
+  ECR_REPOSITORY: nexuspro-frontend
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  Deploy:
+
+    runs-on: ubuntu-latest
+    environment: Dev 
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 
+
+      - name: configure aws credentials
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: arn:aws:iam::654654560428:role/dev-github-oidc
+          role-session-name: githubrolesession
+          aws-region: ${{ env.AWS_REGION }}
+          output-credentials: true
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          BUILD_ID: ${{ github.run_number }}
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          aws s3 ls 
+          aws s3 cp s3://dev-nexus-env/dashboard/encryptedenv ./
+          aws --region us-east-1  kms decrypt --ciphertext-blob  fileb://encryptedenv  --output text --query Plaintext | base64 --decode > .env
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_ID -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_ID
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          # copy the docker build files into the local and sync to s3 bucket   
+          #docker create --name extract $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          #docker cp extract:/usr/local/apache2/htdocs/static ./
+          #docker cp extract:/usr/local/apache2/htdocs/assets ./
+          #aws s3 sync ./static s3://staticdash.dev.nexuspro.io/static
+          #aws s3 sync ./assets s3://staticdash.dev.nexuspro.io/assets
+          #docker rm extract
+
+      - name: Run Snyk to check Docker images for vulnerabilities
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: --severity-threshold=high
+
+      - name: Push changes to Argocd 
+        run: |
+             git  clone ${{ secrets.Argocd_Repo_Url }}
+             ls -la 
+             cd Argocd-EKS
+             git checkout develop
+             sed -i '18s/.*/        image:\ CONTAINER_IMAGE/' manifest/deployment.yml
+             sed -i 's@CONTAINER_IMAGE@'"$ECR_REPOSITORY1:${{ github.run_number }}"'@' manifest/deployment.yml
+             git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+             git config --global user.name "${{ github.actor }}"
+             git add .
+             git commit -m "latest build image ${{ github.run_number }}" || echo "it is already up to date"
+             git push 
