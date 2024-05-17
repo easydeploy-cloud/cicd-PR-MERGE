@@ -1,0 +1,31 @@
+name: Build
+
+on: 
+  pull_request:
+ # push:
+    branches: [ "developer" ]
+
+env:
+  AWS_REGION: us-east-1                   # set this to your preferred AWS region, e.g. us-west-1
+  ECR_REPOSITORY: gl-jen                # set this to your Amazon ECR repository name
+
+permissions:
+  contents: read
+  id-token: write
+  
+
+jobs:
+  build-and-synk:
+
+    runs-on: ubuntu-latest
+    environment: Dev 
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Build, tag, and push image to Amazon ECR
+        run: |
+          echo "hello world"
