@@ -34,8 +34,8 @@ definitions:
           - COMMIT_HASH=$(git rev-parse --short=7 $BITBUCKET_COMMIT)
           - sed -i '18s/.*/        image:\ CONTAINER_IMAGE/' manifest/deployment.yml
           - sed -i 's@CONTAINER_IMAGE@'"$REPOSITORY_URL:$COMMIT_HASH"'@' manifest/deployment.yml
-          - git config --global user.email "niyaz@easydeploy.cloud"
-          - git config --global user.name "niyaz1996"
+          - git config --global user.email "syuvasakthi21@gmail.com"
+          - git config --global user.name "sakthiyuva"
           - git add .
           - git commit -m "latest build image $COMMIT_HASH" || echo "it is already up to date"
           - git push 
