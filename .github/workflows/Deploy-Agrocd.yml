@@ -53,7 +53,7 @@ jobs:
         with:
           task-definition: ${{ secrets.MY_ECS_TASK_DEFINITION }}
         #  container-name: ${{ secrets.CONTAINER_NAME }}
-          container-name: ecs-container
+          container-name: ecs_container
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy Amazon ECS task definition
