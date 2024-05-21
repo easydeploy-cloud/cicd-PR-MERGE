@@ -27,5 +27,5 @@ jobs:
           fetch-depth: 0
           
       - name: Build, tag, and push image to Amazon ECR
-        run: |
+        run:
           echo "hello world"
