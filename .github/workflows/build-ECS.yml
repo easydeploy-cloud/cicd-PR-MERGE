@@ -6,7 +6,7 @@ on:
 
 env:
   MY_AWS_REGION: us-east-1                   # set this to your preferred AWS region, e.g. us-west-1
-  ECR_REPOSITORY: ecr_repository                # set this to your Amazon ECR repository name
+  ECR_REPOSITORY: ecr_repository               # set this to your Amazon ECR repository name
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
     environment: Dev 
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Cod
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
